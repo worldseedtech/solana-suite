@@ -1,10 +1,11 @@
 {
-  "version": "0.0.1",
+  "version": "0.0.2",
   "name": "solana-suite",
   "author": {
     "name": "fukoai"
   },
-  "main": "src/main.ts",
+  "types": "dist/index.d.ts",
+  "main": "dist/index.js",
   "engines": {
     "node": "14.17.* < 16.*"
   },
