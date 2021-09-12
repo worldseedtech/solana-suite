@@ -1,5 +1,9 @@
 {
-  "version": "0.0.0",
+  "version": "0.0.1",
+  "name": "solana-suite",
+  "author": {
+    "name": "fukoai"
+  },
   "main": "src/main.ts",
   "engines": {
     "node": "14.17.* < 16.*"
