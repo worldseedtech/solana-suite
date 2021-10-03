@@ -1,25 +1,27 @@
-import {NFTStorage} from 'nft.storage';
+import {NFTStorage, Blob} from 'nft.storage';
 import fs from 'fs';
+import {Constants} from '../../constants';
+import {Storage} from './index';
 
 export namespace StorageNftStorage {
-  const apiKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJkaWQ6ZXRocjoweERGMjcyN2VkODZhRGU1RTMyZDZDZEJlODc0YzRFNDlEODY1OWZmOEMiLCJpc3MiOiJuZnQtc3RvcmFnZSIsImlhdCI6MTYyMDI2NDk0MzcwNiwibmFtZSI6ImRlbW8ifQ.d4J70mikxRB8a5vwNu6SO5HDA8JaueuseAj7Q_ytMCE';
 
-  const createGatewayUrl = (cid: string): string => `https://ipfs.io/ipfs/${cid}`
+  const createGatewayUrl = (cid: string): string => `${Constants.NFT_STORAGE_GATEWAY_URL}/${cid}`
+
+  const connect = () => new NFTStorage({token: Constants.NFT_STORAGE_API_KEY});
+
+  const preUploadImage = async (client: NFTStorage, imagePath: string): Promise<string> => {
+    const blobImage = new Blob([fs.readFileSync(imagePath)]);
+    const cid = await client.storeBlob(blobImage);
+    return createGatewayUrl(cid);
+  }
 
   export const upload = async (
-    name: string,
-    description: string,
-    imagePath: string
+    storageData: Storage.Format
   ): Promise<string> => {
-    const client = new NFTStorage({token: apiKey});
-    const cid = await client.storeBlob(await fs.promises.readFile(imagePath));
-    const url = createGatewayUrl(cid);
-
-    const metadata = await client.storeBlob(JSON.stringify({
-      name,
-      description,
-      image: url
-    }));
+    const client = connect();
+    storageData.image = await preUploadImage(client, storageData.image);
+    const blobJson = new Blob([JSON.stringify(storageData)]);
+    const metadata = await client.storeBlob(blobJson);
     return createGatewayUrl(metadata);
   }
 }

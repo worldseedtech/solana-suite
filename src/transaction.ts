@@ -7,75 +7,79 @@ import {
   TransactionSignature,
   SystemProgram,
   Signer,
+  ParsedConfirmedTransaction,
+  AccountChangeCallback,
+  ParsedAccountData,
   AccountInfo,
 } from '@solana/web3.js';
 
-import {Util} from './util';
+import {Node} from './node';
 import {Constants} from './constants';
+import bs from 'bs58';
 
 export namespace Transaction {
 
-  export const get = async (signature: string) =>
-    Util.getConnection().getTransaction(signature);
-
-  export const getProgramAccounts = async (
-    programId: string,
-    configOrCommitment?: any,
-  ): Promise<any[]> => {
-    const extra: any = {};
-    let commitment;
-
-    if (configOrCommitment) {
-      if (typeof configOrCommitment === 'string') {
-        commitment = configOrCommitment;
-      } else {
-        commitment = configOrCommitment.commitment;
-        if (configOrCommitment.dataSlice) {
-          extra.dataSlice = configOrCommitment.dataSlice;
-        }
-
-        if (configOrCommitment.filters) {
-          extra.filters = configOrCommitment.filters;
-        }
-      }
-    }
-
-    const connection = Util.getConnection();
-
-    const args = connection._buildArgs([programId], commitment, 'base64', extra);
-    const unsafeRes = await (connection as any)._rpcRequest(
-      'getProgramAccounts',
-      args,
-    );
-
-    const data = (
-      unsafeRes.result as {
-        account: AccountInfo<[string, string]>;
-        pubkey: string;
-      }[]
-    ).map(item => {
-      return {
-        account: {
-          data: item.account.data[0],
-          executable: item.account.executable,
-          lamports: item.account.lamports,
-          owner: item.account.owner,
-        },
-        pubkey: item.pubkey,
-      };
-    });
-    return data;
+  interface SubscribeData<T> {
+    lamports: number,
+    owner: string,
+    parsed: T
   }
+
+  const parseAccountData = (data: Buffer) => {
+    const amountData = data.slice(64, 74)
+    const amount = amountData.readUInt32LE(0) + (amountData.readUInt32LE(4) * 2 ** 32)
+    return {
+      token: new PublicKey(data.slice(0, 32)),
+      owner: new PublicKey(data.slice(32, 64)),
+      amount
+    }
+  }
+
+  export const get = async (signature: string): Promise<ParsedConfirmedTransaction | null> =>
+    await Node.getConnection().getParsedConfirmedTransaction(signature);
+
+  export const getAll = async (pubkey: PublicKey): Promise<ParsedConfirmedTransaction[]> => {
+    const transactions = await Node.getConnection().getConfirmedSignaturesForAddress2(pubkey);
+    const parsedSig: ParsedConfirmedTransaction[] = [];
+    for (const tx of transactions) {
+      const res = await get(tx!.signature);
+      res !== null && parsedSig.push(res);
+    }
+    return parsedSig;
+  }
+
+  export const subscribeAccount = (
+    pubkey: PublicKey,
+    // callback: (data: SubscribeData<Buffer>) => void
+    callback: AccountChangeCallback
+  ): number => {
+    return Node.getConnection().onAccountChange(pubkey, callback, 'confirmed')
+
+    // return Node.getConnection().onAccountChange(pubkey, (data, _) => {
+      // callback(data, _);
+      // console.log(parseAccountData(data.data));
+      // // const subscribeData: SubscribeData<ParsedAccountData> = {
+      // // lamports: data.lamports,
+      // // owner: data.owner.toBase58(),
+      // // parsed: data
+      // // }
+      // // callback(subscribeData);
+    // }, 'singleGossip');
+  }
+
+  export const unsubscribeAccount = (subscribeId: number): Promise<void> =>
+    Node.getConnection().removeAccountChangeListener(subscribeId);
 
   export const sendInstructions = async (
     signers: Keypair[],
     instructions: TransactionInstruction[],
   ): Promise<TransactionSignature> => {
 
-    const conn = Util.getConnection();
+    const conn = Node.getConnection();
     const tx = new SolanaTransaction().add(instructions[0]);
     if (instructions[1]) {
-      instructions.slice(1, instructions.length).forEach((st: TransactionInstruction) => tx.add(st));
+      instructions.slice(1, instructions.length)
+        .forEach((st: TransactionInstruction) => tx.add(st));
     }
     const options = {
       skipPreflight: true,
@@ -85,19 +89,19 @@ export namespace Transaction {
   }
 
   export const send = (
-    sourcePublicKey: PublicKey,
+    source: PublicKey,
     signers: Signer[],
-    destPublicKey: PublicKey,
+    destination: PublicKey,
     amount: number,
   ) => async (instructions?: TransactionInstruction[]): Promise<TransactionSignature> => {
     const params =
       SystemProgram.transfer({
-        fromPubkey: sourcePublicKey,
-        toPubkey: destPublicKey,
+        fromPubkey: source,
+        toPubkey: destination,
         lamports: amount,
       });
 
-    const conn = Util.getConnection();
+    const conn = Node.getConnection();
     const tx = new SolanaTransaction().add(params);
     if (instructions) {
       instructions.forEach((st: TransactionInstruction) => tx.add(st));
